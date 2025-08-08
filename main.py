@@ -1,60 +1,61 @@
 import streamlit as st
 import json
 import os
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer, util
 
-# Load or initialize translation data
-DATA_FILE = "data/translations.json"
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        translations = json.load(f)
-else:
-    translations = []
+# Load sentence transformer model with caching
+@st.cache_resource
+def load_model():
+    return SentenceTransformer("paraphrase-MiniLM-L3-v2")
 
-# Load sentence transformer model
-model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+model = load_model()
 
-st.title("Translation Practice App")
+# Load translations from file
+def load_translations(file_path="data/translations.json"):
+    if not os.path.exists(file_path):
+        st.error("Translation file not found.")
+        return []
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-if not translations:
-    st.warning("No translation entries found. Please add some examples to `data/translations.json`.")
-else:
-    # Select a translation entry
-    entry_idx = st.selectbox("Choose a translation task", range(len(translations)), format_func=lambda i: translations[i]["japanese"])
-    entry = translations[entry_idx]
+translations = load_translations()
+japanese_sentences = [entry["japanese"] for entry in translations]
 
-    # Show Japanese sentence and input box
-    st.write("**Japanese:**", entry["japanese"])
-    user_input = st.text_input("Your English translation:")
+st.title("🧠 Japanese to English Translation Practice")
 
-    if user_input:
-        # Get reference sentences
-        references = [entry["english"]] + entry.get("alternatives", [])
-        
-        # Encode embeddings properly
-        user_embedding = model.encode(user_input)
-        ref_embeddings = model.encode(references)
+if not japanese_sentences:
+    st.warning("No translation data found.")
+    st.stop()
 
-        # Ensure proper shape (2D) for cosine similarity
-        user_embedding = np.array(user_embedding).reshape(1, -1)
-        ref_embeddings = np.array(ref_embeddings)
+selected_japanese = st.selectbox("Select a Japanese sentence:", japanese_sentences)
+entry = next((e for e in translations if e["japanese"] == selected_japanese), None)
 
-        # Calculate similarity scores
-        scores = cosine_similarity(user_embedding, ref_embeddings)[0]
-        best_score = max(scores)
+st.markdown("### 📝 Your English translation:")
+user_input = st.text_input("Type your translation here:")
 
-        st.write("**Similarity Score:**", f"{best_score:.2f}")
+# Button to show the reference translation(s)
+show_translation = st.button("Show correct translation")
 
-        # Show all reference scores
-        with st.expander("See all reference comparisons"):
-            for ref, score in zip(references, scores):
-                st.write(f"`{ref}` → {score:.2f}")
+if show_translation:
+    st.markdown("### 📘 Correct Translation")
+    st.write(entry["english"])
+    if "alternatives" in entry:
+        st.markdown("### 🔄 Alternatives")
+        for alt in entry["alternatives"]:
+            st.write(alt)
 
-        if best_score > 0.8:
-            st.success("Great job! Your translation is quite similar.")
-        elif best_score > 0.6:
-            st.info("Not bad, but you could get closer.")
-        else:
-            st.warning("Your translation seems quite different.")
+if user_input:
+    # Prepare embeddings for user input and reference sentences
+    all_refs = [entry["english"]] + entry.get("alternatives", [])
+    embeddings = model.encode([user_input] + all_refs, convert_to_tensor=True)
+    scores = util.pytorch_cos_sim(embeddings[0], embeddings[1:])
+
+    best_score = scores.max().item()
+    st.write(f"**Similarity score:** {best_score:.2f}")
+
+    if best_score > 0.8:
+        st.success("✅ Very good!")
+    elif best_score > 0.6:
+        st.info("🧐 Not bad, but try to get closer.")
+    else:
+        st.warning("❌ Quite different. Try rephrasing.")

@@ -10,5 +10,10 @@
   {
     "english": "We went to the park.",
     "japanese": "私たちは公園に行きました。"
+  },
+  {
+    "japanese": "私は学生です。",
+    "english": "I am a student.",
+    "alternatives": ["I'm a student."]
   }
 ]
