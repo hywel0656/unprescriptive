@@ -3,59 +3,53 @@ import json
 import os
 from sentence_transformers import SentenceTransformer, util
 
-# Load sentence transformer model with caching
+# Cache the model loading
 @st.cache_resource
 def load_model():
-    return SentenceTransformer("paraphrase-MiniLM-L3-v2")
+    return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
 model = load_model()
 
-# Load translations from file
-def load_translations(file_path="data/translations.json"):
-    if not os.path.exists(file_path):
-        st.error("Translation file not found.")
+DATA_FILE = "data/data.jsonl"
+
+# Load Japanese sentences from jsonl
+def load_japanese_sentences(path):
+    if not os.path.exists(path):
+        st.error(f"Data file not found: {path}")
         return []
-    with open(file_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    sentences = []
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            item = json.loads(line.strip())
+            sentences.append(item["japanese"])
+    return sentences
 
-translations = load_translations()
-japanese_sentences = [entry["japanese"] for entry in translations]
+japanese_sentences = load_japanese_sentences(DATA_FILE)
 
-st.title("🧠 Japanese to English Translation Practice")
+st.title("🧠 Japanese to English Meaning Similarity Practice")
 
 if not japanese_sentences:
-    st.warning("No translation data found.")
+    st.warning("No Japanese sentences found.")
     st.stop()
 
+# Select a sentence
 selected_japanese = st.selectbox("Select a Japanese sentence:", japanese_sentences)
-entry = next((e for e in translations if e["japanese"] == selected_japanese), None)
 
-st.markdown("### 📝 Your English translation:")
-user_input = st.text_input("Type your translation here:")
+st.markdown("### Translate the Japanese sentence into English")
 
-# Button to show the reference translation(s)
-show_translation = st.button("Show correct translation")
-
-if show_translation:
-    st.markdown("### 📘 Correct Translation")
-    st.write(entry["english"])
-    if "alternatives" in entry:
-        st.markdown("### 🔄 Alternatives")
-        for alt in entry["alternatives"]:
-            st.write(alt)
+user_input = st.text_input("Enter your English translation:")
 
 if user_input:
-    # Prepare embeddings for user input and reference sentences
-    all_refs = [entry["english"]] + entry.get("alternatives", [])
-    embeddings = model.encode([user_input] + all_refs, convert_to_tensor=True)
-    scores = util.pytorch_cos_sim(embeddings[0], embeddings[1:])
+    # Compute embeddings and cosine similarity
+    embeddings = model.encode([selected_japanese, user_input], convert_to_tensor=True)
+    similarity = util.cos_sim(embeddings[0], embeddings[1])
+    score = similarity.item()
 
-    best_score = scores.max().item()
-    st.write(f"**Similarity score:** {best_score:.2f}")
+    st.write(f"**Similarity score:** {score:.2f}")
 
-    if best_score > 0.8:
-        st.success("✅ Very good!")
-    elif best_score > 0.6:
-        st.info("🧐 Not bad, but try to get closer.")
+    if score > 0.8:
+        st.success("✅ Your translation is very close in meaning!")
+    elif score > 0.6:
+        st.info("🧐 Some similarity detected. Keep trying!")
     else:
-        st.warning("❌ Quite different. Try rephrasing.")
+        st.warning("❌ Your translation is quite different. Try again!")
